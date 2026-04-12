@@ -419,7 +419,6 @@ ${isHtml ? htmlCode : ""}
             srcDoc={generatePreview()}
             className="w-full h-full border-0 absolute inset-0 bg-white"
             title="Превью сайта"
-            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-same-origin allow-forms allow-modals"
           />
         </div>
       ) : isHtml ? (

@@ -202,9 +202,9 @@ ${htmlCode}
         </div>
       )}
 
-      <div className="flex-1 flex flex-col lg:flex-row">
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0">
         {/* Settings panel */}
-        <aside className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-border/50 bg-card/30 p-4 space-y-4 overflow-auto">
+        <aside className={`${activeTab === 'settings' && !showPreview ? 'block' : 'hidden'} lg:block w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-border/50 bg-card/30 p-4 space-y-4 overflow-y-auto shrink-0 max-h-screen lg:max-h-none`}>
           <div>
             <h3 className="font-semibold flex items-center gap-2 mb-3">
               <Globe className="w-4 h-4" />
@@ -273,20 +273,20 @@ ${htmlCode}
         </aside>
 
         {/* Editor / Preview */}
-        <main className="flex-1 flex flex-col min-h-[500px] lg:min-h-0">
+        <main className={`${activeTab === 'settings' && !showPreview ? 'hidden' : 'flex'} lg:flex flex-1 flex-col h-[700px] md:h-[800px] lg:h-auto min-h-0 shrink-0`}>
           {showPreview ? (
-            <div className="flex-1 bg-background relative min-h-[500px] lg:min-h-0">
+            <div className="flex-1 bg-background relative h-full">
               <iframe
                 srcDoc={generatePreview()}
                 className="w-full h-full border-0 absolute inset-0"
                 title="Превью сайта"
-                sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation allow-same-origin allow-forms allow-modals"
               />
             </div>
           ) : (
-            <div className="flex-1 flex flex-col min-h-[500px] lg:min-h-0">
+            <div className="flex-1 flex flex-col h-full">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-                <TabsList className="mx-4 mt-4 w-fit">
+                <TabsList className="mx-4 mt-4 w-fit flex flex-wrap gap-1">
+                  <TabsTrigger value="settings" className="lg:hidden font-mono text-sm">Настройки</TabsTrigger>
                   <TabsTrigger value="html" className="font-mono text-sm">HTML</TabsTrigger>
                   <TabsTrigger value="css" className="font-mono text-sm">CSS</TabsTrigger>
                   <TabsTrigger value="js" className="font-mono text-sm">JavaScript</TabsTrigger>

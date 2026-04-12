@@ -100,7 +100,7 @@ export default function LobbyPage() {
   const [activeStudent, setActiveStudent] = useState<Participant | null>(null);
   const [savingCode, setSavingCode] = useState(false);
   // Teacher editor tabs (for HTML lobbies)
-  const [teacherTab, setTeacherTab] = useState<"html"|"css"|"js">("html");
+  const [teacherTab, setTeacherTab] = useState<"html"|"css"|"js"|"preview">("html");
   const [editHtml, setEditHtml] = useState("");
   const [editCss, setEditCss] = useState("");
   const [editJs, setEditJs] = useState("");
@@ -309,7 +309,8 @@ export default function LobbyPage() {
     const esc = (v: unknown) =>
       String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-    const header = ["Ученик", "Статус", "Программный Код", "Оценка", "Имя оценки", "Комментарий", "Строк кода", "Опубликованный сайт"];
+    // Build rows: header + data
+    const header = ["Ученик", "Оценка"];
 
     let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">`;
     html += `<head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>`;
@@ -327,24 +328,12 @@ export default function LobbyPage() {
         if (g.grade === 5) gradeBg = "background-color: #22c55e; color: #fff;";
       }
 
-      let siteUrl = "";
-      try {
-        const parsed = JSON.parse(p.student_code || "{}");
-        if (parsed && typeof parsed === "object" && parsed.deployed_url) siteUrl = parsed.deployed_url;
-      } catch {}
-
       const row = [
         esc(p.nickname),
-        esc(p.is_online ? "Онлайн" : "Оффлайн"),
-        esc(p.student_code || "Пусто"),
-        `<td style="font-weight:bold;text-align:center;${gradeBg}">${g ? String(g.grade) : "Нет"}</td>`,
-        `<td>${g ? esc(gradeLabel(g.grade)) : "Нет"}</td>`,
-        `<td>${esc(g?.comment || "")}</td>`,
-        `<td>${p.student_code ? String(p.student_code.split('\\n').length) : "0"}</td>`,
-        `<td>${siteUrl ? "<a href='" + window.location.origin + "/site/" + siteUrl + "'>" + siteUrl + "</a>" : ""}</td>`
+        `<td style="font-weight:bold;text-align:center;${gradeBg}">${g ? String(g.grade) : "Нет"}</td>`
       ];
 
-      html += `<tr><td>${row[0]}</td><td>${row[1]}</td><td>${row[2]}</td>${row[3]}${row[4]}${row[5]}${row[6]}${row[7]}</tr>`;
+      html += `<tr><td>${row[0]}</td>${row[1]}</tr>`;
     });
     html += `</table></body></html>`;
 
@@ -562,7 +551,7 @@ export default function LobbyPage() {
                   <div className="flex-1 flex flex-col overflow-hidden">
                     {/* Tab bar */}
                     <div className="shrink-0 flex border-b border-border/50 bg-card/20 px-3 pt-1.5 gap-1">
-                      {(["html", "css", "js"] as const).map(tab => (
+                      {(["html", "css", "js", "preview"] as const).map(tab => (
                         <button
                           key={tab}
                           onClick={() => setTeacherTab(tab)}
@@ -589,6 +578,15 @@ export default function LobbyPage() {
                         {teacherTab === "js" && (
                           <CodeEditor language="javascript" value={editJs}
                             onChange={v => { setEditJs(v); teacherAutoSave(editHtml, editCss, v, ""); }} />
+                        )}
+                        {teacherTab === "preview" && (
+                          <div className="flex-1 bg-white relative h-full">
+                            <iframe
+                              srcDoc={`<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Превью</title><style>${editCss}</style></head><body>${editHtml}<script>${editJs}</script></body></html>`}
+                              className="w-full h-full border-0 absolute inset-0"
+                              title="Превью сайта"
+                            />
+                          </div>
                         )}
                       </div>
                     </div>
