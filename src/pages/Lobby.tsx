@@ -8,14 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import CodeEditor from "@/components/CodeEditor";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 import {
-  ArrowLeft, Plus, Users, Code2, Star, Download, Eye, Edit, Save, X, MessageSquare
+  ArrowLeft, Plus, Users, Code2, Star, Download, Save, MessageSquare,
+  Circle, ChevronRight, GraduationCap, BookOpen, Zap
 } from "lucide-react";
 
 function generateLobbyCode(): string {
@@ -70,6 +72,14 @@ function gradeColor(grade: number) {
   return "";
 }
 
+function gradeLabel(grade: number) {
+  if (grade === 2) return "Плохо";
+  if (grade === 3) return "Удовл.";
+  if (grade === 4) return "Хорошо";
+  if (grade === 5) return "Отлично";
+  return "";
+}
+
 export default function LobbyPage() {
   const { user, loading: authLoading } = useAuth();
   const { isTeacher, loading: adminLoading } = useAdmin();
@@ -86,12 +96,12 @@ export default function LobbyPage() {
   const [newTitle, setNewTitle] = useState("");
   const [newLanguage, setNewLanguage] = useState("html");
 
-  // Student code viewer
-  const [viewingStudent, setViewingStudent] = useState<Participant | null>(null);
+  // Split-view: selected student
+  const [activeStudent, setActiveStudent] = useState<Participant | null>(null);
   const [editingCode, setEditingCode] = useState("");
   const [savingCode, setSavingCode] = useState(false);
 
-  // Grading
+  // Grading dialog
   const [gradingStudent, setGradingStudent] = useState<Participant | null>(null);
   const [gradeValue, setGradeValue] = useState(5);
   const [gradeComment, setGradeComment] = useState("");
@@ -136,16 +146,14 @@ export default function LobbyPage() {
 
   const selectLobby = async (lobby: Lobby) => {
     setSelectedLobby(lobby);
-    setViewingStudent(null);
+    setActiveStudent(null);
     setGradingStudent(null);
-    // Fetch participants
     const { data: parts } = await supabase
       .from("lobby_participants")
       .select("*")
       .eq("lobby_id", lobby.id)
       .order("joined_at", { ascending: true });
     if (parts) setParticipants(parts);
-    // Fetch grades
     const { data: gr } = await supabase
       .from("lobby_grades")
       .select("*")
@@ -158,8 +166,24 @@ export default function LobbyPage() {
     if (!selectedLobby) return;
     const channel = supabase
       .channel(`lobby-${selectedLobby.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "lobby_participants", filter: `lobby_id=eq.${selectedLobby.id}` }, () => {
-        selectLobby(selectedLobby);
+      .on("postgres_changes", { event: "*", schema: "public", table: "lobby_participants", filter: `lobby_id=eq.${selectedLobby.id}` }, (payload) => {
+        // Update participant in list without full reload
+        if (payload.eventType === "UPDATE") {
+          const updated = payload.new as Participant;
+          setParticipants(prev => prev.map(p => p.id === updated.id ? updated : p));
+          // If this is the currently viewed student, update code too
+          setActiveStudent(prev => {
+            if (prev && prev.id === updated.id) {
+              setEditingCode(updated.student_code || "");
+              return updated;
+            }
+            return prev;
+          });
+        } else {
+          // INSERT or DELETE — refetch
+          supabase.from("lobby_participants").select("*").eq("lobby_id", selectedLobby.id).order("joined_at", { ascending: true })
+            .then(({ data }) => { if (data) setParticipants(data); });
+        }
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "lobby_grades", filter: `lobby_id=eq.${selectedLobby.id}` }, () => {
         supabase.from("lobby_grades").select("*").eq("lobby_id", selectedLobby.id).then(({ data }) => { if (data) setGrades(data); });
@@ -168,23 +192,23 @@ export default function LobbyPage() {
     return () => { supabase.removeChannel(channel); };
   }, [selectedLobby?.id]);
 
-  const openStudentCode = (p: Participant) => {
-    setViewingStudent(p);
-    setEditingCode(p.student_code);
+  const openStudent = (p: Participant) => {
+    setActiveStudent(p);
+    setEditingCode(p.student_code || "");
   };
 
   const saveStudentCode = async () => {
-    if (!viewingStudent) return;
+    if (!activeStudent) return;
     setSavingCode(true);
     const { error } = await supabase
       .from("lobby_participants")
       .update({ student_code: editingCode })
-      .eq("id", viewingStudent.id);
+      .eq("id", activeStudent.id);
     if (error) toast.error("Ошибка сохранения");
     else {
       toast.success("Код ученика сохранён");
-      setViewingStudent({ ...viewingStudent, student_code: editingCode });
-      setParticipants(prev => prev.map(p => p.id === viewingStudent.id ? { ...p, student_code: editingCode } : p));
+      setParticipants(prev => prev.map(p => p.id === activeStudent.id ? { ...p, student_code: editingCode } : p));
+      setActiveStudent(prev => prev ? { ...prev, student_code: editingCode } : prev);
     }
     setSavingCode(false);
   };
@@ -227,22 +251,67 @@ export default function LobbyPage() {
     setSavingGrade(false);
   };
 
-  const exportToExcel = async () => {
+  // ── Real Excel export ──────────────────────────────────────────────────────
+  const exportToExcel = () => {
     if (!selectedLobby) return;
-    // Build CSV-like data (simple xlsx via edge function would be ideal, but let's do CSV download for now)
-    const rows = participants.map(p => {
+
+    // Build rows with all details
+    const rows = participants.map((p, idx) => {
       const g = grades.find(gr => gr.student_id === p.user_id);
-      return `${p.nickname},${g?.grade || "—"},${g?.comment || ""}`;
+      return {
+        "№": idx + 1,
+        "Ученик": p.nickname,
+        "Статус": p.is_online ? "Онлайн" : "Оффлайн",
+        "Оценка": g?.grade ?? "—",
+        "Описание оценки": g ? gradeLabel(g.grade) : "—",
+        "Комментарий учителя": g?.comment || "",
+        "Код ученика": p.student_code || "",
+      };
     });
-    const csv = `Ученик,Оценка,Комментарий\n${rows.join("\n")}`;
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${selectedLobby.title}_оценки.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Файл скачан!");
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    // Column widths
+    ws["!cols"] = [
+      { wch: 5 },   // №
+      { wch: 22 },  // Ученик
+      { wch: 12 },  // Статус
+      { wch: 9 },   // Оценка
+      { wch: 18 },  // Описание оценки
+      { wch: 35 },  // Комментарий
+      { wch: 60 },  // Код
+    ];
+
+    // Header style (bold)
+    const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: 0, c: C });
+      if (ws[addr]) {
+        ws[addr].s = {
+          font: { bold: true, color: { rgb: "FFFFFF" } },
+          fill: { fgColor: { rgb: "4F46E5" } },
+          alignment: { horizontal: "center" },
+        };
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Оценки");
+
+    // Metadata sheet
+    const metaRows = [
+      { "Поле": "Урок", "Значение": selectedLobby.title },
+      { "Поле": "Код лобби", "Значение": selectedLobby.code },
+      { "Поле": "Язык", "Значение": LANGUAGES.find(l => l.value === selectedLobby.language)?.label || selectedLobby.language },
+      { "Поле": "Всего учеников", "Значение": String(participants.length) },
+      { "Поле": "Дата экспорта", "Значение": new Date().toLocaleString("ru-RU") },
+    ];
+    const ws2 = XLSX.utils.json_to_sheet(metaRows);
+    ws2["!cols"] = [{ wch: 22 }, { wch: 35 }];
+    XLSX.utils.book_append_sheet(wb, ws2, "Информация");
+
+    XLSX.writeFile(wb, `${selectedLobby.title}_оценки.xlsx`);
+    toast.success("Excel файл скачан!");
   };
 
   const toggleLobbyActive = async () => {
@@ -261,144 +330,247 @@ export default function LobbyPage() {
 
   if (authLoading || adminLoading || !user) return null;
 
-  // If viewing a student's code
-  if (viewingStudent && selectedLobby) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <header className="border-b border-border/50 bg-card/80 backdrop-blur-sm sticky top-0 z-10">
-          <div className="container flex items-center justify-between h-14">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={() => setViewingStudent(null)}>
-                <ArrowLeft className="w-4 h-4 mr-1" /> Назад к списку
-              </Button>
-              <span className="text-sm font-medium">{viewingStudent.nickname}</span>
-            </div>
-            <Button variant="hero" size="sm" onClick={saveStudentCode} disabled={savingCode}>
-              <Save className="w-4 h-4 mr-1" />
-              {savingCode ? "Сохранение..." : "Сохранить изменения"}
-            </Button>
-          </div>
-        </header>
-        <main className="flex-1 p-4">
-          <CodeEditor
-            language={selectedLobby.language === "python" ? "python" : selectedLobby.language === "css" ? "css" : selectedLobby.language === "javascript" ? "javascript" : "html"}
-            value={editingCode}
-            onChange={setEditingCode}
-          />
-        </main>
-      </div>
-    );
-  }
+  const lang = selectedLobby
+    ? (selectedLobby.language === "python" ? "python"
+      : selectedLobby.language === "css" ? "css"
+      : selectedLobby.language === "javascript" ? "javascript"
+      : "html")
+    : "html";
 
-  // If a lobby is selected — show participants
+  // ── LOBBY CLASSROOM VIEW (split-view) ──────────────────────────────────────
   if (selectedLobby) {
     return (
-      <div className="min-h-screen bg-background">
-        <header className="border-b border-border/50 bg-card/80 backdrop-blur-sm sticky top-0 z-10">
-          <div className="container flex items-center justify-between h-14">
+      <div className="h-screen bg-background flex flex-col overflow-hidden">
+        {/* Header */}
+        <header className="border-b border-border/50 bg-card/80 backdrop-blur-sm shrink-0 z-10">
+          <div className="flex items-center justify-between h-14 px-4">
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={() => setSelectedLobby(null)}>
+              <Button variant="ghost" size="sm" onClick={() => { setSelectedLobby(null); setActiveStudent(null); }}>
                 <ArrowLeft className="w-4 h-4 mr-1" /> Мои лобби
               </Button>
-              <span className="font-semibold">{selectedLobby.title}</span>
-              <Badge variant={selectedLobby.is_active ? "default" : "secondary"}>
-                {selectedLobby.is_active ? "Активно" : "Завершено"}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <GraduationCap className="w-5 h-5 text-primary" />
+                <span className="font-semibold text-base">{selectedLobby.title}</span>
+                <Badge variant={selectedLobby.is_active ? "default" : "secondary"} className="text-xs">
+                  {selectedLobby.is_active ? "Активно" : "Завершено"}
+                </Badge>
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="font-mono text-base px-3 py-1">
-                Код: {selectedLobby.code}
+              <div className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-3 py-1.5">
+                <span className="text-xs text-muted-foreground">Код:</span>
+                <span className="font-mono font-bold text-primary text-sm tracking-widest">{selectedLobby.code}</span>
+              </div>
+              <Badge variant="outline" className="gap-1">
+                <Users className="w-3 h-3" />
+                {participants.length}
               </Badge>
               <Button variant="outline" size="sm" onClick={toggleLobbyActive}>
                 {selectedLobby.is_active ? "Завершить" : "Активировать"}
               </Button>
               <Button variant="outline" size="sm" onClick={exportToExcel}>
-                <Download className="w-4 h-4 mr-1" /> Экспорт
+                <Download className="w-4 h-4 mr-1" /> Excel
               </Button>
             </div>
           </div>
         </header>
 
-        <main className="container py-6">
-          <div className="flex items-center gap-2 mb-6">
-            <Users className="w-5 h-5 text-muted-foreground" />
-            <h2 className="text-xl font-semibold">Ученики ({participants.length})</h2>
+        {/* Split view body */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* LEFT: Students panel */}
+          <div className="w-72 shrink-0 border-r border-border/50 bg-card/30 flex flex-col overflow-hidden">
+            <div className="px-3 py-2 border-b border-border/40 bg-muted/20">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5" /> Ученики ({participants.length})
+              </p>
+            </div>
+
+            {participants.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                <div className="w-16 h-16 rounded-full bg-muted/40 flex items-center justify-center mb-3">
+                  <Users className="w-8 h-8 text-muted-foreground/40" />
+                </div>
+                <p className="text-sm font-medium text-muted-foreground mb-1">Ожидание учеников</p>
+                <p className="text-xs text-muted-foreground">Поделитесь кодом лобби</p>
+                <div className="mt-3 px-3 py-1.5 bg-primary/10 rounded-lg border border-primary/20">
+                  <span className="font-mono font-bold text-primary text-sm">{selectedLobby.code}</span>
+                </div>
+              </div>
+            ) : (
+              <ScrollArea className="flex-1">
+                <div className="p-2 space-y-1">
+                  {participants.map(p => {
+                    const g = grades.find(gr => gr.student_id === p.user_id);
+                    const isActive = activeStudent?.id === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => openStudent(p)}
+                        className={`w-full text-left rounded-lg px-3 py-2.5 transition-all border ${
+                          isActive
+                            ? "bg-primary/15 border-primary/40"
+                            : "bg-transparent border-transparent hover:bg-muted/50 hover:border-border/40"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${p.is_online ? "bg-green-500 animate-pulse" : "bg-muted-foreground/30"}`} />
+                            <span className="text-sm font-medium truncate">{p.nickname}</span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {g && (
+                              <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${gradeColor(g.grade)}`}>
+                                {g.grade}
+                              </span>
+                            )}
+                            <ChevronRight className={`w-3 h-3 text-muted-foreground/50 ${isActive ? "text-primary" : ""}`} />
+                          </div>
+                        </div>
+                        {g?.comment && (
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate pl-4">{g.comment}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground/60 mt-0.5 pl-4">
+                          {p.student_code ? `${p.student_code.split('\n').length} строк` : "Пустой"}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            )}
           </div>
 
-          {participants.length === 0 ? (
-            <Card className="text-center py-12">
-              <CardContent>
-                <Users className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground">Пока никто не подключился</p>
-                <p className="text-sm text-muted-foreground mt-1">Код для подключения: <span className="font-mono font-bold text-primary">{selectedLobby.code}</span></p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {participants.map(p => {
-                const g = grades.find(gr => gr.student_id === p.user_id);
-                return (
-                  <Card key={p.id} className="border-border/50">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base">{p.nickname}</CardTitle>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${p.is_online ? "bg-green-500" : "bg-muted-foreground/30"}`} />
-                          {g && (
-                            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${gradeColor(g.grade)}`}>
-                              {g.grade}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {g?.comment && (
-                        <p className="text-xs text-muted-foreground mb-3 flex items-start gap-1">
-                          <MessageSquare className="w-3 h-3 mt-0.5 shrink-0" />
-                          {g.comment}
-                        </p>
-                      )}
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" className="flex-1" onClick={() => openStudentCode(p)}>
-                          <Code2 className="w-3 h-3 mr-1" /> Код
-                        </Button>
-                        <Button variant="outline" size="sm" className="flex-1" onClick={() => openGrading(p)}>
-                          <Star className="w-3 h-3 mr-1" /> Оценка
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </main>
+          {/* RIGHT: Code editor */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {activeStudent ? (
+              <>
+                {/* Student code toolbar */}
+                <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-border/50 bg-card/50">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${activeStudent.is_online ? "bg-green-500" : "bg-muted-foreground/30"}`} />
+                    <span className="font-semibold text-sm">{activeStudent.nickname}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {activeStudent.is_online ? "онлайн" : "оффлайн"}
+                    </span>
+                    {(() => {
+                      const g = grades.find(gr => gr.student_id === activeStudent.user_id);
+                      return g ? (
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${gradeColor(g.grade)}`}>
+                          {g.grade} — {gradeLabel(g.grade)}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openGrading(activeStudent)}
+                      className="gap-1"
+                    >
+                      <Star className="w-3.5 h-3.5" />
+                      {grades.find(g => g.student_id === activeStudent.user_id) ? "Изменить оценку" : "Поставить оценку"}
+                    </Button>
+                    <Button
+                      variant="hero"
+                      size="sm"
+                      onClick={saveStudentCode}
+                      disabled={savingCode}
+                      className="gap-1"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {savingCode ? "Сохранение..." : "Сохранить"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Comment bar if exists */}
+                {(() => {
+                  const g = grades.find(gr => gr.student_id === activeStudent.user_id);
+                  return g?.comment ? (
+                    <div className="shrink-0 px-4 py-1.5 bg-muted/30 border-b border-border/30 flex items-center gap-2 text-xs text-muted-foreground">
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                      <span>Комментарий: <span className="text-foreground">{g.comment}</span></span>
+                    </div>
+                  ) : null;
+                })()}
+
+                {/* Monaco Editor */}
+                <div className="flex-1 overflow-hidden p-2">
+                  <div className="h-full rounded-md overflow-hidden border border-border/40">
+                    <CodeEditor
+                      language={lang}
+                      value={editingCode}
+                      onChange={setEditingCode}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* Placeholder when no student selected */
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                <div className="w-24 h-24 rounded-2xl bg-muted/30 border border-border/40 flex items-center justify-center mb-6">
+                  <Code2 className="w-12 h-12 text-muted-foreground/30" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Выберите ученика</h3>
+                <p className="text-sm text-muted-foreground max-w-xs">
+                  Нажмите на ученика в списке слева, чтобы просмотреть и отредактировать его код в реальном времени
+                </p>
+                {participants.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                    {participants.slice(0, 4).map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => openStudent(p)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted/50 border border-border/40 hover:bg-primary/10 hover:border-primary/30 transition-all text-sm"
+                      >
+                        <div className={`w-1.5 h-1.5 rounded-full ${p.is_online ? "bg-green-500" : "bg-muted-foreground/30"}`} />
+                        {p.nickname}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Grading dialog */}
         <Dialog open={!!gradingStudent} onOpenChange={(open) => { if (!open) setGradingStudent(null); }}>
-          <DialogContent>
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Оценка — {gradingStudent?.nickname}</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <GraduationCap className="w-5 h-5" />
+                Оценка — {gradingStudent?.nickname}
+              </DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div className="space-y-2">
-                <Label>Оценка</Label>
-                <div className="flex gap-2">
+                <Label className="text-sm font-medium">Выберите оценку</Label>
+                <div className="grid grid-cols-4 gap-2">
                   {[2, 3, 4, 5].map(v => (
                     <button
                       key={v}
                       onClick={() => setGradeValue(v)}
-                      className={`w-12 h-12 rounded-lg text-lg font-bold transition-all ${gradeColor(v)} ${gradeValue === v ? "ring-2 ring-ring ring-offset-2" : "opacity-60 hover:opacity-80"}`}
+                      className={`flex flex-col items-center gap-1 py-3 rounded-xl text-lg font-bold transition-all ${gradeColor(v)} ${gradeValue === v ? "ring-2 ring-ring ring-offset-2 scale-105" : "opacity-50 hover:opacity-80"}`}
                     >
                       {v}
+                      <span className="text-[10px] font-normal opacity-80">{gradeLabel(v)}</span>
                     </button>
                   ))}
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Комментарий</Label>
-                <Textarea value={gradeComment} onChange={e => setGradeComment(e.target.value)} placeholder="Хорошая работа!" rows={3} />
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <MessageSquare className="w-3.5 h-3.5" /> Комментарий
+                </Label>
+                <Textarea
+                  value={gradeComment}
+                  onChange={e => setGradeComment(e.target.value)}
+                  placeholder="Хорошая работа! Обрати внимание на..."
+                  rows={3}
+                  className="resize-none"
+                />
               </div>
               <Button variant="hero" onClick={saveGrade} disabled={savingGrade} className="w-full">
                 <Save className="w-4 h-4 mr-1" />
@@ -411,7 +583,7 @@ export default function LobbyPage() {
     );
   }
 
-  // Lobby list
+  // ── LOBBY LIST ─────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border/50 bg-card/80 backdrop-blur-sm sticky top-0 z-10">
@@ -420,7 +592,10 @@ export default function LobbyPage() {
             <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard")}>
               <ArrowLeft className="w-4 h-4 mr-1" /> Дашборд
             </Button>
-            <span className="font-semibold">Мои лобби</span>
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-primary" />
+              <span className="font-semibold">Мои лобби</span>
+            </div>
           </div>
           <Button variant="hero" size="sm" onClick={() => setShowCreate(true)}>
             <Plus className="w-4 h-4 mr-1" /> Создать лобби
@@ -434,9 +609,11 @@ export default function LobbyPage() {
         ) : lobbies.length === 0 && !showCreate ? (
           <Card className="text-center py-16">
             <CardContent>
-              <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Users className="w-8 h-8 text-primary" />
+              </div>
               <h3 className="text-xl font-semibold mb-2">Нет лобби</h3>
-              <p className="text-muted-foreground mb-6">Создайте лобби для урока</p>
+              <p className="text-muted-foreground mb-6">Создайте лобби для урока и следите за кодом учеников в реальном времени</p>
               <Button variant="hero" onClick={() => setShowCreate(true)}>
                 <Plus className="w-4 h-4 mr-1" /> Создать лобби
               </Button>
@@ -445,9 +622,11 @@ export default function LobbyPage() {
         ) : (
           <>
             {showCreate && (
-              <Card className="mb-6 border-primary/30">
+              <Card className="mb-6 border-primary/30 shadow-lg">
                 <CardHeader>
-                  <CardTitle className="text-lg">Новое лобби</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Zap className="w-5 h-5 text-primary" /> Новое лобби
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
@@ -475,12 +654,16 @@ export default function LobbyPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {lobbies.map(lobby => (
-                <Card key={lobby.id} className="cursor-pointer hover:shadow-lg transition-all border-border/50" onClick={() => selectLobby(lobby)}>
+                <Card
+                  key={lobby.id}
+                  className="cursor-pointer hover:shadow-lg transition-all border-border/50 hover:border-primary/30 group"
+                  onClick={() => selectLobby(lobby)}
+                >
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div>
-                        <CardTitle className="text-lg">{lobby.title}</CardTitle>
-                        <CardDescription className="font-mono mt-1">Код: {lobby.code}</CardDescription>
+                        <CardTitle className="text-lg group-hover:text-primary transition-colors">{lobby.title}</CardTitle>
+                        <CardDescription className="font-mono mt-1">Код: <span className="font-bold text-primary">{lobby.code}</span></CardDescription>
                       </div>
                       <Badge variant={lobby.is_active ? "default" : "secondary"}>
                         {lobby.is_active ? "Активно" : "Завершено"}
@@ -488,9 +671,12 @@ export default function LobbyPage() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-sm text-muted-foreground">
-                      Язык: {LANGUAGES.find(l => l.value === lobby.language)?.label || lobby.language}
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-muted-foreground">
+                        {LANGUAGES.find(l => l.value === lobby.language)?.label || lobby.language}
+                      </p>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors" />
+                    </div>
                   </CardContent>
                 </Card>
               ))}
