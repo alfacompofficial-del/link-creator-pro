@@ -11,6 +11,8 @@ import Editor from "./pages/Editor";
 import Profile from "./pages/Profile";
 import SiteView from "./pages/SiteView";
 import Admin from "./pages/Admin";
+import Lobby from "./pages/Lobby";
+import StudentLobby from "./pages/StudentLobby";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +32,8 @@ const App = () => (
             <Route path="/editor/:id" element={<Editor />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/lobby" element={<Lobby />} />
+            <Route path="/lobby/:lobbyId" element={<StudentLobby />} />
             <Route path="/site/:subdomain" element={<SiteView />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
