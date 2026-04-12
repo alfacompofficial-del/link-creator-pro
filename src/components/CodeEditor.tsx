@@ -3,7 +3,7 @@ import * as monaco from "monaco-editor";
 import { useRef, useEffect } from "react";
 
 interface CodeEditorProps {
-  language: "html" | "css" | "javascript";
+  language: "html" | "css" | "javascript" | "python";
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
