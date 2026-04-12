@@ -5,7 +5,7 @@ import { useAdmin } from "@/hooks/useAdmin";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Code2, Plus, Globe, ExternalLink, LogOut, User, Trash2, Copy, Shield } from "lucide-react";
+import { Code2, Plus, Globe, ExternalLink, LogOut, User, Trash2, Copy, Shield, Users } from "lucide-react";
 import { toast } from "sonner";
 
 const SITE_BASE_URL = `${window.location.origin}/site`;
@@ -80,6 +80,12 @@ export default function Dashboard() {
               <Button variant="outline" size="sm" onClick={() => navigate("/admin")} className="text-primary border-primary/30">
                 <Shield className="w-4 h-4 mr-1" />
                 Админ
+              </Button>
+            )}
+            {(isAdmin || isTeacher) && (
+              <Button variant="outline" size="sm" onClick={() => navigate("/lobby")} className="text-primary border-primary/30">
+                <Users className="w-4 h-4 mr-1" />
+                Лобби
               </Button>
             )}
             <Button variant="ghost" size="sm" onClick={() => navigate("/profile")}>
