@@ -14,6 +14,121 @@ export type Database = {
   }
   public: {
     Tables: {
+      lobbies: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          language: string
+          teacher_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          language?: string
+          teacher_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          language?: string
+          teacher_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      lobby_grades: {
+        Row: {
+          comment: string | null
+          created_at: string
+          grade: number
+          id: string
+          lobby_id: string
+          student_id: string
+          teacher_id: string
+          updated_at: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          grade: number
+          id?: string
+          lobby_id: string
+          student_id: string
+          teacher_id: string
+          updated_at?: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          grade?: number
+          id?: string
+          lobby_id?: string
+          student_id?: string
+          teacher_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lobby_grades_lobby_id_fkey"
+            columns: ["lobby_id"]
+            isOneToOne: false
+            referencedRelation: "lobbies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lobby_participants: {
+        Row: {
+          id: string
+          is_online: boolean
+          joined_at: string
+          lobby_id: string
+          nickname: string
+          student_code: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          is_online?: boolean
+          joined_at?: string
+          lobby_id: string
+          nickname: string
+          student_code?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          is_online?: boolean
+          joined_at?: string
+          lobby_id?: string
+          nickname?: string
+          student_code?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lobby_participants_lobby_id_fkey"
+            columns: ["lobby_id"]
+            isOneToOne: false
+            referencedRelation: "lobbies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           bio: string | null
