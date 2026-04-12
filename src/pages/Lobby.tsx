@@ -255,61 +255,39 @@ export default function LobbyPage() {
   const exportToExcel = () => {
     if (!selectedLobby) return;
 
-    // Build rows with all details
-    const rows = participants.map((p, idx) => {
+    // Header row
+    const header = ["Ученики", "Оценки", "Комментарий", "Статус", "Код ученика"];
+
+    // Data rows — each participant = one row, each field = separate column
+    const dataRows = participants.map(p => {
       const g = grades.find(gr => gr.student_id === p.user_id);
-      return {
-        "№": idx + 1,
-        "Ученик": p.nickname,
-        "Статус": p.is_online ? "Онлайн" : "Оффлайн",
-        "Оценка": g?.grade ?? "—",
-        "Описание оценки": g ? gradeLabel(g.grade) : "—",
-        "Комментарий учителя": g?.comment || "",
-        "Код ученика": p.student_code || "",
-      };
+      return [
+        p.nickname,
+        g ? g.grade : "",
+        g?.comment || "",
+        p.is_online ? "Онлайн" : "Оффлайн",
+        p.student_code || "",
+      ];
     });
 
-    const ws = XLSX.utils.json_to_sheet(rows);
+    // Combine header + data
+    const aoa = [header, ...dataRows];
+
+    // Create worksheet from array-of-arrays (columns guaranteed)
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
 
     // Column widths
     ws["!cols"] = [
-      { wch: 5 },   // №
-      { wch: 22 },  // Ученик
-      { wch: 12 },  // Статус
-      { wch: 9 },   // Оценка
-      { wch: 18 },  // Описание оценки
+      { wch: 22 },  // Ученики
+      { wch: 10 },  // Оценки
       { wch: 35 },  // Комментарий
+      { wch: 12 },  // Статус
       { wch: 60 },  // Код
     ];
 
-    // Header style (bold)
-    const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
-    for (let C = range.s.c; C <= range.e.c; C++) {
-      const addr = XLSX.utils.encode_cell({ r: 0, c: C });
-      if (ws[addr]) {
-        ws[addr].s = {
-          font: { bold: true, color: { rgb: "FFFFFF" } },
-          fill: { fgColor: { rgb: "4F46E5" } },
-          alignment: { horizontal: "center" },
-        };
-      }
-    }
-
+    // Create workbook and write file
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Оценки");
-
-    // Metadata sheet
-    const metaRows = [
-      { "Поле": "Урок", "Значение": selectedLobby.title },
-      { "Поле": "Код лобби", "Значение": selectedLobby.code },
-      { "Поле": "Язык", "Значение": LANGUAGES.find(l => l.value === selectedLobby.language)?.label || selectedLobby.language },
-      { "Поле": "Всего учеников", "Значение": String(participants.length) },
-      { "Поле": "Дата экспорта", "Значение": new Date().toLocaleString("ru-RU") },
-    ];
-    const ws2 = XLSX.utils.json_to_sheet(metaRows);
-    ws2["!cols"] = [{ wch: 22 }, { wch: 35 }];
-    XLSX.utils.book_append_sheet(wb, ws2, "Информация");
-
     XLSX.writeFile(wb, `${selectedLobby.title}_оценки.xlsx`);
     toast.success("Excel файл скачан!");
   };
