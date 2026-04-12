@@ -20,7 +20,7 @@ interface Site {
 
 export default function Dashboard() {
   const { user, signOut, loading: authLoading } = useAuth();
-  const { isAdmin } = useAdmin();
+  const { isAdmin, isTeacher } = useAdmin();
   const navigate = useNavigate();
   const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
