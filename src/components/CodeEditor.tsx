@@ -317,6 +317,17 @@ const PYTHON_SNIPPETS: Record<string, { body: string; description: string }> = {
   dictc: { body: `{\${1:k}: \${2:v} for \${1:k}, \${2:v} in \${3:iterable}}`, description: "Dict comprehension" },
   imp: { body: `import \${0:module}`, description: "Import" },
   from: { body: `from \${1:module} import \${0:name}`, description: "From import" },
+  print: { body: `print(\${0:text})`, description: "Print message" },
+  input: { body: `\${1:var} = input("\${0:prompt: }")`, description: "Input prompt" },
+  len: { body: `len(\${0:iterable})`, description: "Length of object" },
+  range: { body: `range(\${1:start}, \${0:stop})`, description: "Range object" },
+  append: { body: `\${1:list}.append(\${0:item})`, description: "List append" },
+  join: { body: `"\${1: }".join(\${0:iterable})`, description: "String join" },
+  map: { body: `map(\${1:func}, \${0:iterable})`, description: "Map function" },
+  filter: { body: `filter(\${1:func}, \${0:iterable})`, description: "Filter function" },
+  enumerate: { body: `enumerate(\${0:iterable})`, description: "Enumerate iterable" },
+  zip: { body: `zip(\${1:iter1}, \${0:iter2})`, description: "Zip iterables" },
+  sort: { body: `\${1:list}.sort(\${0:reverse=True})`, description: "List sort" },
 };
 
 // Helper to convert snippet body to insertText with tab stops
