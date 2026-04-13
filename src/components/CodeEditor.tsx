@@ -511,46 +511,6 @@ export default function CodeEditor({
       registerPythonCompletions(monacoInstance);
       completionsRegistered = true;
     }
-
-    // Custom Tab key: expand snippet if word before cursor matches a known snippet
-    editor.addCommand(
-      monacoInstance.KeyCode.Tab,
-      () => {
-        const model = editor.getModel();
-        const position = editor.getPosition();
-        if (!model || !position) return;
-
-        const wordInfo = model.getWordUntilPosition(position);
-        const word = wordInfo.word;
-
-        let snippetMap: Record<string, { body: string }> = {};
-        if (language === "html") snippetMap = HTML_SNIPPETS;
-        else if (language === "css") snippetMap = CSS_SNIPPETS;
-        else if (language === "javascript") snippetMap = JS_SNIPPETS;
-        else if (language === "python") snippetMap = PYTHON_SNIPPETS;
-
-        const snippet = snippetMap[word] || snippetMap[`<${word}>`];
-
-        if (snippet && word) {
-          // Delete the typed word first
-          const range = new monacoInstance.Range(
-            position.lineNumber,
-            wordInfo.startColumn,
-            position.lineNumber,
-            wordInfo.endColumn
-          );
-          editor.executeEdits("", [{ range, text: "" }]);
-          // Insert as snippet
-          editor.trigger("", "editor.action.insertSnippet", {
-            snippet: snippet.body,
-          });
-        } else {
-          // Default tab behavior
-          editor.trigger("keyboard", "tab", {});
-        }
-      },
-      "!suggestWidgetVisible"
-    );
   };
 
   return (

@@ -1,11 +1,12 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { spawn } from 'child_process';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import os from 'os';
+import pty from 'node-pty';
 
 const app = express();
 app.use(cors());
@@ -14,83 +15,82 @@ const io = new Server(httpServer, {
   cors: { origin: '*' }
 });
 
-const processes = new Map(); // Store child processes by socket id
+const terminals = new Map();
 
 io.on('connection', (socket) => {
   console.log(`[+] Client connected: ${socket.id}`);
 
-  socket.on('run_python', ({ code }) => {
-    // Kill existing process if any
-    if (processes.has(socket.id)) {
-      processes.get(socket.id).kill();
-      processes.delete(socket.id);
-    }
+  // Create an interactive shell
+  const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+  const ptyProcess = pty.spawn(shell, [], {
+    name: 'xterm-color',
+    cols: 80,
+    rows: 30,
+    cwd: process.cwd(), // Stay in project folder
+    env: process.env
+  });
 
-    // Save code to a temp file
-    const tempFileName = `temp_${crypto.randomUUID()}.py`;
-    const tempFilePath = path.join(process.cwd(), tempFileName);
-    fs.writeFileSync(tempFilePath, code, 'utf-8');
+  terminals.set(socket.id, ptyProcess);
 
-    // Spawn Python process with -u (unbuffered)
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-    const pyProcess = spawn(pythonCmd, ['-X', 'utf8', '-u', tempFilePath], {
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
-    });
-
-    processes.set(socket.id, pyProcess);
-
-    // Send start signal
-    socket.emit('terminal_output', '\r\n\x1b[32m--- Process Started ---\x1b[0m\r\n');
-
-    pyProcess.stdout.on('data', (data) => {
-      // Send raw data to terminal
-      socket.emit('terminal_output', data.toString().replace(/\n/g, '\r\n'));
-    });
-
-    pyProcess.stderr.on('data', (data) => {
-      // Send error data to terminal in red
-      socket.emit('terminal_output', `\x1b[31m${data.toString().replace(/\n/g, '\r\n')}\x1b[0m`);
-    });
-
-    pyProcess.on('close', (code) => {
-      socket.emit('terminal_output', `\r\n\x1b[33m--- Process finished with exit code ${code} ---\x1b[0m\r\n`);
-      processes.delete(socket.id);
-      // Clean up temp file
-      if (fs.existsSync(tempFilePath)) {
-        fs.unlinkSync(tempFilePath);
-      }
-    });
+  ptyProcess.onData((data) => {
+    socket.emit('terminal_output', data);
   });
 
   socket.on('terminal_input', (input) => {
-    // Send user input from terminal to running process
-    const pyProcess = processes.get(socket.id);
-    if (pyProcess && pyProcess.stdin) {
-        // Echo input to terminal so user sees what they type
-      socket.emit('terminal_output', input.replace(/\n/g, '\r\n'));
-      pyProcess.stdin.write(input);
-    }
+    const term = terminals.get(socket.id);
+    if (term) term.write(input);
+  });
+
+  socket.on('run_python', ({ code }) => {
+    const term = terminals.get(socket.id);
+    if (!term) return;
+
+    // Send Ctrl+C to kill any previously running script in this shell
+    term.write('\x03');
+    
+    // Save code to a temp file
+    const tempFileName = `temp_${crypto.randomUUID().split('-')[0]}.py`;
+    const tempFilePath = path.join(process.cwd(), tempFileName);
+    fs.writeFileSync(tempFilePath, code, 'utf-8');
+
+    // Execute the script in the interactive terminal
+    const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+    
+    // Delay sending the command slightly so Ctrl+C can finalize
+    setTimeout(() => {
+        term.write(`${pyCmd} -X utf8 -u "${tempFilePath}"\r`);
+        // Clean up temp file after a while (lazy cleanup)
+        setTimeout(() => { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); }, 60000); // 1 min script execution max if we want to delete it, actually let's not delete it immediately since endless scripts need the file.
+        // Or better yet, we just leave temp files for endless scripts, and they get overwritten/lost.
+    }, 100);
   });
 
   socket.on('kill_python', () => {
-    if (processes.has(socket.id)) {
-        processes.get(socket.id).kill();
-        processes.delete(socket.id);
-        socket.emit('terminal_output', '\r\n\x1b[31m--- Process Killed ---\x1b[0m\r\n');
+    const term = terminals.get(socket.id);
+    if (term) {
+        term.write('\x03'); // Send SIGINT (Ctrl+C)
     }
+  });
+
+  socket.on('resize', (size) => {
+      const term = terminals.get(socket.id);
+      if (term) {
+          term.resize(size.cols, size.rows);
+      }
   });
 
   socket.on('disconnect', () => {
     console.log(`[-] Client disconnected: ${socket.id}`);
-    if (processes.has(socket.id)) {
-      processes.get(socket.id).kill();
-      processes.delete(socket.id);
+    const term = terminals.get(socket.id);
+    if (term) {
+      term.kill(); // Kill the shell and all its children
+      terminals.delete(socket.id);
     }
   });
 });
 
 const PORT = 4000;
 httpServer.listen(PORT, () => {
-  console.log(`🚀 Python Runner Server started on http://localhost:${PORT}`);
-  console.log(`Accepting WebSocket connections for terminal...`);
+  console.log(`🚀 Python PTY Runner Server started on http://localhost:${PORT}`);
+  console.log(`Interactive terminals are ready...`);
 });

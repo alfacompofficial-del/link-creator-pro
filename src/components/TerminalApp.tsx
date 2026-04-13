@@ -58,20 +58,23 @@ export default function TerminalApp({ code }: TerminalAppProps) {
     // Receive data from python stdout/stderr
     socket.on('terminal_output', (data: string) => {
       term.write(data);
-      if (data.includes('--- Process finished') || data.includes('--- Process Killed')) {
-        setIsRunning(false);
-      }
     });
 
     // Handle user typing in the terminal (stdin)
     term.onData((data) => {
-      if (socketRef.current && isRunning) {
+      if (socketRef.current) {
         // Send keystrokes to server
         socketRef.current.emit('terminal_input', data);
       }
     });
 
     // Handle resize
+    term.onResize((size) => {
+      if (socketRef.current) {
+        socketRef.current.emit('resize', { cols: size.cols, rows: size.rows });
+      }
+    });
+
     const handleResize = () => {
       fitAddon.fit();
     };
