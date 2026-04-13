@@ -299,6 +299,26 @@ const JS_SNIPPETS: Record<string, { body: string; description: string }> = {
   },
 };
 
+// ─── Python Snippets ──────────────────────────────────────────────────────────
+const PYTHON_SNIPPETS: Record<string, { body: string; description: string }> = {
+  def: { body: `def \${1:name}(\${2:args}):\n    \${0:pass}`, description: "Function definition" },
+  class: { body: `class \${1:Name}:\n    def __init__(self, \${2:args}):\n        \${0:pass}`, description: "Class definition" },
+  for: { body: `for \${1:item} in \${2:iterable}:\n    \${0:pass}`, description: "For loop" },
+  forr: { body: `for \${1:i} in range(\${2:10}):\n    \${0:pass}`, description: "For loop with range" },
+  while: { body: `while \${1:condition}:\n    \${0:pass}`, description: "While loop" },
+  if: { body: `if \${1:condition}:\n    \${0:pass}`, description: "If statement" },
+  ife: { body: `if \${1:condition}:\n    \${2:pass}\nelse:\n    \${0:pass}`, description: "If/Else statement" },
+  elif: { body: `elif \${1:condition}:\n    \${0:pass}`, description: "Elif statement" },
+  try: { body: `try:\n    \${1:pass}\nexcept \${2:Exception} as \${3:e}:\n    \${0:pass}`, description: "Try/Except block" },
+  main: { body: `if __name__ == '__main__':\n    \${0:main()}`, description: "Main block" },
+  open: { body: `with open('\${1:file.txt}', '\${2:r}') as \${3:f}:\n    \${0:content = f.read()}`, description: "Open file context manager" },
+  lam: { body: `lambda \${1:x}: \${0:x}`, description: "Lambda function" },
+  listc: { body: `[\${1:x} for \${1:x} in \${2:iterable} if \${3:condition}]`, description: "List comprehension" },
+  dictc: { body: `{\${1:k}: \${2:v} for \${1:k}, \${2:v} in \${3:iterable}}`, description: "Dict comprehension" },
+  imp: { body: `import \${0:module}`, description: "Import" },
+  from: { body: `from \${1:module} import \${0:name}`, description: "From import" },
+};
+
 // Helper to convert snippet body to insertText with tab stops
 function snippetBodyToInsertText(body: string): string {
   // Replace ${1:placeholder}, ${0} etc. - Monaco uses the same format
@@ -424,6 +444,41 @@ function registerJsCompletions(monacoInstance: typeof monaco) {
   monacoInstance.languages.registerCompletionItemProvider("typescript", provider);
 }
 
+// ─── Register completions for Python ─────────────────────────────────────────
+function registerPythonCompletions(monacoInstance: typeof monaco) {
+  monacoInstance.languages.registerCompletionItemProvider("python", {
+    triggerCharacters: [" ", ".", "\t"],
+    provideCompletionItems: (model, position) => {
+      const wordInfo = model.getWordUntilPosition(position);
+      const range = {
+        startLineNumber: position.lineNumber,
+        endLineNumber: position.lineNumber,
+        startColumn: wordInfo.startColumn,
+        endColumn: wordInfo.endColumn,
+      };
+
+      const suggestions: monaco.languages.CompletionItem[] = [];
+
+      Object.entries(PYTHON_SNIPPETS).forEach(([label, { body, description }]) => {
+        suggestions.push({
+          label,
+          kind: monacoInstance.languages.CompletionItemKind.Snippet,
+          insertText: body,
+          insertTextRules:
+            monacoInstance.languages.CompletionItemInsertTextRule
+              .InsertAsSnippet,
+          documentation: description,
+          detail: description,
+          range,
+          sortText: "0" + label,
+        });
+      });
+
+      return { suggestions };
+    },
+  });
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 let completionsRegistered = false;
 
@@ -442,6 +497,7 @@ export default function CodeEditor({
       registerHtmlCompletions(monacoInstance);
       registerCssCompletions(monacoInstance);
       registerJsCompletions(monacoInstance);
+      registerPythonCompletions(monacoInstance);
       completionsRegistered = true;
     }
 
@@ -459,7 +515,8 @@ export default function CodeEditor({
         let snippetMap: Record<string, { body: string }> = {};
         if (language === "html") snippetMap = HTML_SNIPPETS;
         else if (language === "css") snippetMap = CSS_SNIPPETS;
-        else snippetMap = JS_SNIPPETS;
+        else if (language === "javascript") snippetMap = JS_SNIPPETS;
+        else if (language === "python") snippetMap = PYTHON_SNIPPETS;
 
         const snippet = snippetMap[word] || snippetMap[`<${word}>`];
 

@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import CodeEditor from "@/components/CodeEditor";
+import TerminalApp from "@/components/TerminalApp";
 import { toast } from "sonner";
 
 import {
@@ -592,14 +593,19 @@ export default function LobbyPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex-1 overflow-hidden p-2">
-                    <div className="h-full rounded-md overflow-hidden border border-border/40">
+                  <div className="flex-1 overflow-hidden p-2 flex flex-col xl:flex-row gap-2">
+                    <div className="flex-1 min-h-0 rounded-md overflow-hidden border border-border/40">
                       <CodeEditor
                         language={lang}
                         value={editingCode}
                         onChange={v => { setEditingCode(v); teacherAutoSave("", "", "", v); }}
                       />
                     </div>
+                    {lang === "python" && (
+                      <div className="flex-1 min-h-[300px] xl:min-h-0 rounded-md overflow-hidden shadow-xl border border-border/40">
+                        <TerminalApp code={editingCode} />
+                      </div>
+                    )}
                   </div>
                 )}
               </>

@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import CodeEditor from "@/components/CodeEditor";
+import TerminalApp from "@/components/TerminalApp";
 import { toast } from "sonner";
 import { ArrowLeft, MessageSquare, CheckCircle2, Eye, Globe, ExternalLink, Copy } from "lucide-react";
 
@@ -468,14 +469,19 @@ ${isHtml ? htmlCode : ""}
           </div>
         </div>
       ) : (
-        <main className="flex-1 overflow-hidden p-3">
-          <div className="h-full rounded-lg overflow-hidden border border-border/40">
+        <main className="flex-1 overflow-hidden p-2 md:p-3 flex flex-col lg:flex-row gap-2 md:gap-3 min-h-0">
+          <div className="flex-1 min-h-0 rounded-lg overflow-hidden border border-border/40">
             <CodeEditor
               language={lang}
               value={code}
               onChange={lobby.is_active ? handleCodeChange : () => {}}
             />
           </div>
+          {lang === "python" && (
+            <div className="flex-1 min-h-[300px] lg:min-h-0 rounded-lg overflow-hidden shadow-xl">
+              <TerminalApp code={code} />
+            </div>
+          )}
         </main>
       )}
 

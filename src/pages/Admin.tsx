@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Users, FolderOpen, Eye, Mail, Globe, Save, Lock } from "lucide-react";
+import { ArrowLeft, Users, FolderOpen, Eye, Mail, Globe, Save, Lock, GraduationCap, Plus, Copy, Play } from "lucide-react";
 import { toast } from "sonner";
 import CodeEditor from "@/components/CodeEditor";
 
@@ -23,6 +23,16 @@ interface UserSite {
   html_code: string | null;
   css_code: string | null;
   js_code: string | null;
+  js_code: string | null;
+  created_at: string;
+}
+
+interface Lobby {
+  id: string;
+  title: string;
+  code: string;
+  language: string;
+  status: string;
   created_at: string;
 }
 
@@ -45,6 +55,12 @@ export default function Admin() {
   const [jsCode, setJsCode] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Lobbies state
+  const [lobbies, setLobbies] = useState<Lobby[]>([]);
+  const [lobbyTitle, setLobbyTitle] = useState("");
+  const [lobbyLang, setLobbyLang] = useState("HTML/CSS/JS");
+  const [creatingLobby, setCreatingLobby] = useState(false);
+
   useEffect(() => {
     if (!authLoading && !adminLoading) {
       if (!user) navigate("/auth");
@@ -58,8 +74,9 @@ export default function Admin() {
   useEffect(() => {
     if (isAdmin || isTeacher) {
       loadStats();
+      if (user) loadLobbies(user.id);
     }
-  }, [isAdmin, isTeacher]);
+  }, [isAdmin, isTeacher, user]);
 
   const loadStats = async () => {
     const { count } = await supabase
@@ -94,6 +111,41 @@ export default function Admin() {
       .order("created_at", { ascending: false });
 
     setUserSites(data || []);
+  };
+
+  const loadLobbies = async (teacherId: string) => {
+    const { data } = await supabase
+      .from("lobbies")
+      .select("*")
+      .eq("teacher_id", teacherId)
+      .order("created_at", { ascending: false });
+    setLobbies(data || []);
+  };
+
+  const handleCreateLobby = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !lobbyTitle.trim()) return;
+    setCreatingLobby(true);
+    
+    // Generate code e.g. PYT-7K
+    const prefix = lobbyLang === "Python" ? "PYT" : "WEB";
+    const shortCode = `${prefix}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+    const { error } = await supabase.from("lobbies").insert({
+      teacher_id: user.id,
+      title: lobbyTitle,
+      code: shortCode,
+      language: lobbyLang
+    });
+
+    if (error) {
+      toast.error("Ошибка при создании лобби: " + error.message);
+    } else {
+      toast.success(`Лобби ${shortCode} создано!`);
+      setLobbyTitle("");
+      loadLobbies(user.id);
+    }
+    setCreatingLobby(false);
   };
 
   const handleSelectUser = (u: UserInfo) => {
@@ -189,6 +241,10 @@ ${html}
                 Статистика
               </TabsTrigger>
             )}
+            <TabsTrigger value="lobbies">
+              <GraduationCap className="w-4 h-4 mr-1" />
+              Лобби (Уроки)
+            </TabsTrigger>
             <TabsTrigger value="users">
               <FolderOpen className="w-4 h-4 mr-1" />
               Ученики и Проекты
@@ -246,6 +302,103 @@ ${html}
               </Card>
             </TabsContent>
           )}
+
+          {/* Lobbies Tab (For Teachers) */}
+          <TabsContent value="lobbies" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Lobbies list */}
+              <div className="lg:col-span-2 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold">Ваши актуальные лобби</h3>
+                </div>
+                
+                {lobbies.length === 0 ? (
+                  <Card className="border-border/50">
+                    <CardContent className="py-12 text-center text-muted-foreground flex flex-col items-center">
+                      <GraduationCap className="w-12 h-12 mb-3 opacity-20" />
+                      Вы еще не создали ни одного лобби
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="grid gap-3">
+                    {lobbies.map((lobby) => (
+                      <Card key={lobby.id} className="border-primary/20 hover:border-primary/50 transition-colors">
+                        <CardContent className="py-4 flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`w-2 h-2 rounded-full ${lobby.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`} />
+                              <h4 className="font-semibold text-lg">{lobby.title}</h4>
+                            </div>
+                            <div className="flex gap-3 text-sm text-muted-foreground">
+                              <span>Код: <strong className="text-foreground tracking-wider">{lobby.code}</strong></span>
+                              <span>•</span>
+                              <span>Язык: {lobby.language}</span>
+                              <span>•</span>
+                              <span>{new Date(lobby.created_at).toLocaleDateString("ru-RU")}</span>
+                            </div>
+                          </div>
+                          
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" onClick={() => {
+                              navigator.clipboard.writeText(lobby.code);
+                              toast.success("Код скопирован");
+                            }}>
+                              <Copy className="w-4 h-4 mr-1" /> Код
+                            </Button>
+                            <Button variant="hero" size="sm">
+                              <Play className="w-4 h-4 mr-1" /> Войти
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Create Lobby Pane */}
+              <Card className="lg:col-span-1 border-primary/20 border-2 shadow-lg h-fit sticky top-20">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Plus className="w-5 h-5 text-primary" />
+                    Создать новое лобби
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleCreateLobby} className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Тема урока</label>
+                      <input
+                        type="text"
+                        required
+                        value={lobbyTitle}
+                        onChange={(e) => setLobbyTitle(e.target.value)}
+                        placeholder="Например: Урок 7 - CSS Grid"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Язык</label>
+                      <select
+                        value={lobbyLang}
+                        onChange={(e) => setLobbyLang(e.target.value)}
+                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="HTML/CSS/JS">Web (HTML/CSS/JS)</option>
+                        <option value="Python">Python</option>
+                      </select>
+                    </div>
+
+                    <Button type="submit" variant="hero" className="w-full" disabled={creatingLobby}>
+                      {creatingLobby ? "Создание..." : "Сгенерировать код"}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
 
           {/* Users & Projects Tab (For Both) */}
           <TabsContent value="users" className="space-y-6">
